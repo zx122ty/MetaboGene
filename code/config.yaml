@@ -1,0 +1,234 @@
+# =============================================================================
+# Metabo-Gene 多模态 DTI/MTI 预测模型 —— 全局参数配置
+#
+# 所有流水线脚本 (01 ~ 06) 的参数统一存放于此，禁止在脚本内硬编码。
+# 使用方式:
+#     import config as C
+#     cfg = C.load()
+#     base = cfg.base_dir                      # 项目根目录 deeplearning_model/
+#     p    = cfg.get_path("paths.uniprot_fasta")   # 相对路径自动拼 base_dir
+# =============================================================================
+
+# ----------------------------- 路径 (Paths) ---------------------------------
+paths:
+  # 主数据源 (161 万行文献挖掘三元组)
+  source_parquet: data/source/merged_standardized_tree.parquet
+  # extract_experimental.py 输出
+  experimental_csv: data/merged_standardized_tree_experimental.csv
+  # Step1 金标准
+  gold_dir: data/gold
+  gold_positive: data/gold/gold_positive.parquet
+  gold_stats: data/gold/gold_stats.json
+  gold_with_struct: data/gold/gold_with_struct.parquet
+  gold_with_uniprot: data/gold/gold_positive_with_uniprot.parquet
+  gold_with_struct_fullseq: data/gold/gold_with_struct_fullseq.parquet
+  seq_coverage: data/gold/seq_coverage.json
+  # Step2 结构获取缓存
+  cache_dir: data/cache
+  pubchem_smiles_cache: data/cache/pubchem_smiles.json
+  uniprot_seq_cache: data/cache/uniprot_seq.json
+  # 本地 UniProt reviewed FASTA (57.5 万条)
+  uniprot_fasta: external/uniprot/uniprot_sprot.fasta.gz
+  # 本地 HMDB metabolite library (用户自行下载)
+  hmdb_metabolites: external/HMDB/hmdb_metabolites.parquet
+  # Step3 正/负样本
+  neg_dir: data/neg
+  positives: data/neg/positives.parquet
+  negatives: data/neg/negatives.parquet
+  neg_stats: data/neg/neg_stats.json
+  neg_struct_coverage: data/neg/gen_struct_coverage.json
+  # Step4 特征
+  features_dir: data/features
+  labels_npz: data/features/labels.npz
+  split_npz: data/features/split.npz
+  feature_stats: data/features/feature_stats.json
+  esm_cache_dir: data/features/esm_3B
+  unimol2_cache_dir: data/features/cache_unimol2
+  # Step5 结果
+  results_dir: results
+  # Step7 外部验证 (ChEMBL)
+  external_dir: data/external
+  # ESM-2-3B 权重 (相对 base_dir)
+  esm_model_path: ESM2/esm2_t36_3B_UR50D
+
+# --------------------------- Step1 金标准构建 --------------------------------
+gold_dataset:
+  keep_columns:
+    - PMID
+    - metabolite_pubchem_cid
+    - gene_entrez_id
+    - interaction_type
+    - is_direct_interaction
+    - direction
+    - confidence_score
+    - species
+    - disease_level1
+    - pathway_context
+    - experimental_method_role
+    - is_negated
+  min_confidence: 0.30            # 剔除极低置信度阈值
+  drop_biphasic: true             # 剔除 direction == "biphasic"
+  # 验收
+  accept_min_positives: 50000     # 金标准正样本 >= 50,000
+  accept_min_act_inh_frac: 0.60   # 激活/抑制(非 neutral) 占比 >= 60%
+
+# --------------------------- Step2 结构获取 ----------------------------------
+fetch:
+  pubchem_batch_size: 200         # PubChem PUG REST 单批 CID 数
+  max_smiles_requests: 8000       # SMILES 总请求上限 (子样本跑通)
+  max_protein_sequences: 300      # UniProt 序列抓取上限 (子样本跑通)
+  request_timeout_s: 40           # PubChem 超时
+  uniprot_timeout_s: 20           # UniProt REST 超时
+  sleep_between_batches_s: 0.2    # 批间休眠
+  retry_sleep_s: 2                # 失败/限速重试休眠
+  user_agent: "Mozilla/5.0 (metabo-gene-research)"
+  uniprot_organism_id: 9606       # Homo sapiens
+  # 验收
+  accept_smiles_coverage: 0.60    # SMILES 覆盖率 >= 60%
+  accept_seq_coverage: 0.40       # 蛋白序列覆盖率 >= 40% (不足则降级单模态)
+
+# --------------------------- Step3 负样本采样 ---------------------------------
+negative_sampling:
+  seed: 42
+  hard_ratio: 0.7                 # 难(同 disease 未报道) : 易(全局随机) = 7:3
+  pos_neg_ratio: 1.0              # 最终正负比 1:1（由 Step4 剔除缺失模态后收口）
+  oversample: 1.3                 # 采样倍数：负样本经 Step4 完整模态过滤后会掉一部分，
+                                  # 故先多采 oversample 倍，保证过滤后仍 >= 正样本数
+  exclude_reported_pairs: true    # 【缺陷#8】候选池排除源表中出现过的任意互作 pair（含非直接互作行）
+  restrict_to_featurizable: true  # 候选池限定在「能取到结构」的实体上（met 有 SMILES、tar 有 FASTA 序列）
+  accept_ratio_min: 1.1           # 验收: 实际正负比下界 (目标 = pos_neg_ratio * oversample)
+  accept_ratio_max: 1.5           # 验收: 实际正负比上界
+
+# --------------------------- Step4 特征编码 ----------------------------------
+features:
+  seed: 42
+  fp_bits: 2048                   # ECFP4 / Morgan 指纹位数
+  fp_radius: 2                    # Morgan radius (ECFP4)
+  aa_alphabet: "ACDEFGHIKLMNPQRSTVWY"   # 蛋白轻量特征氨基酸表
+  dde_min_seq_len: 2              # 序列短于此长度视为无效
+  unimol_cls_dim: 1536            # Uni-Mol2 1.1B CLS 维度
+  l2_norm_eps: 1.0e-8             # L2 归一化数值保护
+  normalize_mol_default: true     # UniCLS 逐行 L2 归一化默认开启
+  split_test_size: 0.20           # 80/10/10 划分 (test=20% 再对半分)
+  split_second_half: 0.50         # val/test 各占一半
+  # 【缺陷#3】输出文件名由 (mol_encoder, protein_encoder) 二元组共同决定，键名 = "<mol>+<protein>"。
+  # 只按 mol 命名会导致 `--protein_encoder_type esm` 静默覆盖 2469 维基线 features.npz。
+  out_tag_map:                    # (mol_encoder, protein_encoder) -> 输出文件名
+    fp+dde: features.npz
+    fp+esm: features_esm.npz
+    unimol2+dde: features_unimol.npz
+    unimol2+esm: features_unimol_esm.npz
+    hybrid+dde: features_hybrid.npz
+    hybrid+esm: features_hybrid_esm.npz
+  default_out_tag: features.npz   # 仅当 (fp, dde) 时可达；其它组合若落到此名将直接报错（防覆盖守卫）
+  drop_incomplete_modalities: true  # 【缺陷#4】剔除 SMILES/序列任一缺失的行（零填充会构成标签泄漏通道）
+  rebalance_pos_neg: true         # 【缺陷#4】剔除后按少数类下采样，恢复 1:1 配比
+  # 验收
+  accept_min_samples: 100000      # 样本数 >= 100k
+  accept_min_feature_dim: 2000    # 特征维 > 2000
+  accept_min_test: 10000          # 测试集 > 10k
+
+# --------------------------- Step4b ESM 表征 ---------------------------------
+esm_embed:
+  max_aa_per_chunk: 1024          # ESM2-3B 单段位置上限 (1024 aa + cls/eos)
+  hidden_dim: 2560                # ESM-3B 嵌入维度
+  batch_size: 4                   # FP16 下的安全批量
+  max_n: 0                        # 0=全部唯一序列; >0=仅前 N 条 (快速试跑)
+
+# --------------------------- Step4c Uni-Mol2 表征 -----------------------------
+unimol2_embed:
+  model_name: unimolv2
+  model_size: "1.1B"
+  cls_dim: 1536                   # encoder_embed_dim (实测确认)
+  max_atoms: 256                  # 原子级缓存上限 (超长截断)
+  batch_size: 16                  # 与脚本原默认一致
+  max_n: 0                        # 0=全部唯一 SMILES; >0=仅前 N 条
+  ckpt: external/unimol2/checkpoint_1.1B.pt
+
+# --------------------------- Step5 训练评估 ----------------------------------
+training:
+  seed: 42
+  batch_size: 512
+  epochs: 15
+  direction_max_epochs: 25        # 方向任务最多训练轮数 (min(epochs, 此值))
+  lr: 0.002
+  patience: 6
+  hidden_dim: 512                 # DualTaskMLP 隐层宽度
+  dropout: 0.3
+  # ---- 融合消融 (26-10-13)：DualTaskMLP 模态融合方式（详见 code/fusion.py docstring）----
+  fusion: concat                  # concat(原路径)/bilinear/gated/xattn；非 concat 自带投影, 配 --proj_esm 0
+  work_dim: 256                   # 融合前各模态投影工作维 (bilinear/gated 交互瓶颈; xattn token 总维)
+  out_dim: 512                    # 融合输出维 (=trunk 输入维; concat 模式忽略, 用 eff_mol+eff_prot)
+  xattn_tokens: 4                 # xattn pseudo-token 数 (work_dim 必须整除)
+  xattn_heads: 4                  # xattn 每方向注意力头数 (head_dim = token_dim/heads)
+  # ---- 不确定性预测 (26-10-14, code/13_uncertainty_eval.py) ----
+  evidential_kl_weight: 1.0       # Dirichlet KL 正则权重 (退火 ×min(1, ep/anneal))
+  evidential_anneal_epochs: 5     # KL 退火轮数
+  uncertainty_knn_k: 10           # u_dist 的 kNN 邻居数
+  uncertainty_dist_alpha: 0.5     # u_dist-entity 分子/蛋白距离权重 (0.5=等权)
+  # ---- 方向标签映射（【唯一真相】缺陷#1：全流程只此一处定义，禁止再手写字典）----
+  # 训练/评估/外部打分一律 cfg.get("training.direction_label_map") 读取，杜绝二次漂移。
+  # 外部打分侧曾误写成 {"activation":0,"inhibition":1,"neutral":2}（act 与 neu 互换），
+  # 导致 DrugBank/Reactome/CTD 三个外部方向结果被系统性低估。
+  direction_label_map:
+    neutral: 0
+    inhibition: 1
+    activation: 2
+  label_names:                    # 方向标签索引 -> 名称（混淆矩阵图刻度），必须与 direction_label_map 一致
+    "0": neutral
+    "1": inhibition
+    "2": activation
+  topk_frac: 0.01                 # Top-K 评测的 K = 1% 测试集（precision_at_topk / recall_at_topk）
+  joint_w_binary: 1.0             # 联合训练损失权重
+  joint_w_direction: 1.0
+  feat_file_map:                  # --feat -> 特征文件名
+    default: features.npz
+    esm: features_esm.npz
+    unimol2: features_unimol.npz
+    unimol_esm: features_unimol_esm.npz
+    hybrid: features_hybrid.npz
+    hybrid_esm: features_hybrid_esm.npz
+    # hybrid_esm_l2 是历史别名：normalize_mol 默认开启，hybrid+esm 产出即 L2 归一化版，
+    # 与 hybrid_esm 同一份文件。原指向的 features_hybrid_esm_l2.npz 是 8 月旧数据集产物，
+    # 若继续引用会让 --feat hybrid_esm_l2 静默读到与当前数据集不可比的旧特征。
+    hybrid_esm_l2: features_hybrid_esm.npz
+  prefix_map:                     # --feat -> 结果文件前缀 (缺省)
+    default: step5
+    esm: step5_esm
+    unimol2: step5_unimol
+    unimol_esm: step5_unimol_esm
+    hybrid: step5_hybrid
+    hybrid_esm: step5_hybrid_esm
+    hybrid_esm_l2: step5_hybrid_esm_l2
+  # 分子块维度 (04 产出特征中「分子部分」列宽, 用于找分子-蛋白边界)
+  mol_dim_map:
+    default: 2048
+    esm: 2048
+    unimol2: 1536
+    unimol_esm: 1536
+    hybrid: 3584
+    hybrid_esm: 3584
+    hybrid_esm_l2: 3584
+  # 验收
+  accept_binary_roc_auc: 0.75     # 互作 ROC-AUC >= 0.75
+  accept_direction_acc: 0.70      # 方向准确率 >= 0.70
+
+# --------------------------- Step5b 方向变体 ---------------------------------
+direction_variants:
+  seed: 42
+  batch_size: 512
+  lr: 0.002
+  epochs: 30
+  patience: 8
+  hidden_dims: [512, 256]         # DirMLP 隐层宽度
+  dropout: 0.3
+  v2_test_size: 0.20              # V2 act-vs-inh 划分
+  v2_val_frac: 0.15               # V2 train 中再分出验证集的比例
+
+# --------------------------- Step6 外部验证 ----------------------------------
+external_validation:
+  seed: 42
+  logistic_max_iter: 1000         # 稳健性佐证: LogisticRegression max_iter（原 200 大概率未收敛）
+  logistic_solver: lbfgs          # lbfgs 不支持 n_jobs；改为检查 n_iter_ 是否触顶来判定收敛
+  audit_sample_size: 200          # 审计抽样条数
+  mlp_roc_auc_reference: 0.8430   # Step5 MLP ROC-AUC (参考值, 写入审计 JSON)

@@ -1,0 +1,87 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+.venv/
+venv/
+env/
+
+# Editors and operating systems
+.DS_Store
+Thumbs.db
+*.swp
+*.swo
+.idea/
+.vscode/
+.claude/
+
+# Local configuration and logs
+.env
+.env.*
+!.env.example
+*.log
+logs/
+
+# Downloaded dependency caches
+.cache/
+.hfd/
+
+# Datasets, features, external databases, and generated caches
+data/
+external/
+results/
+*_cache/
+*_backup*/
+ESM2/
+unimol2/
+third_party/
+code/02_get_SMILES/
+
+# Large or generated file types
+*.npy
+*.npz
+*.parquet
+*.arrow
+*.feather
+*.pt
+*.pth
+*.ckpt
+*.bin
+*.h5
+*.safetensors
+*.db
+*.sqlite
+*.sqlite3
+*.tar
+*.tar.gz
+*.tgz
+*.zip
+*.gz
+*.fasta
+*.fa
+*.csv
+*.tsv
+*.bak
+
+# Local notes and working materials
+README_local_use.md
+paper/
+design/
+prompt/
+
+# Internal maintenance scripts that depend on local manuscript files
+code/_audit_numbers.py
+code/_backup_results.py
+code/_fix_esm_cache.py
+code/_fix_sidecars.sh
+code/_regen_supp_tables.py
+code/_sync_ascii_docs.py
+code/_write_sidecars.py
+code/_make_sota_report.py
+code/_check_new_entity_cost.py
+code/run_*.sh
