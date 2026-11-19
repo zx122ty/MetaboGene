@@ -10,6 +10,10 @@ htmlcov/
 .venv/
 venv/
 env/
+webserver/
+valid_temporal_2026/
+valid_new_pubmed_paper/
+.taste-skill/
 
 # Editors and operating systems
 .DS_Store
@@ -85,3 +89,14 @@ code/_write_sidecars.py
 code/_make_sota_report.py
 code/_check_new_entity_cost.py
 code/run_*.sh
+
+# webserver build products
+webserver/frontend/node_modules/
+webserver/frontend/dist/
+webserver/frontend/.taste-skill/
+webserver/data/*.sqlite*
+webserver/data/img-cache/
+webserver/data/golden/
+webserver/data/precompute*.json
+webserver/data/precompute*.log
+webserver/data/api.log

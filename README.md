@@ -234,8 +234,10 @@ python code/16_graph_fusion_optimize.py --external ensemble
 ## Data and code availability
 
 - PMDdb browser: <https://pmddb.qfxulab.com/>
-- Code repository: `https://github.com/<GITHUB_OWNER>/MetaboGene`
-- Data, model and paper archive: `https://doi.org/<ZENODO_DOI>`
-- Release inventory: [ZENODO_UPLOAD.md](ZENODO_UPLOAD.md)
+- Web server: <https://metabogene.qfxulab.cn/>
+- zenodo: <https://zenodo.org/records/23476887>
 
 Absolute scores depend on the published negative-sampling model. Internal negatives are unreported pairs, not experimentally confirmed non-interactions. Direction labels also reflect statement-level literature semantics. These limitations are described in the manuscript and should be considered when applying the model outside the released evaluation sets.
+
+## How to cite
+Coming soon ~
